@@ -135,3 +135,117 @@ A documentação completa da API está disponível via Swagger UI em:
 - **Operation Service**: Notifica mudanças de status de pagamento
 - **Mercado Pago**: Processamento de pagamentos via QR Code
 
+## 🔗 Integração Serverless (AWS Lambda)
+
+✅ **PRONTO PARA USO**: A autenticação serverless já está totalmente configurada!
+
+### **🛠️ Código Implementado**
+O código foi atualizado seguindo o padrão do monolítico `tc-golunch-api`:
+
+1. **ServerlessAuthGateway**: Implementado para comunicação com Lambda
+2. **ServerlessAuthMiddleware**: Middleware de autenticação serverless
+3. **main.go**: Atualizado para usar serverless auth em vez de JWT local
+
+### **🔧 Configuração das URLs**
+
+**⚠️ PREREQUISITO**: Primeiro faça deploy do `tc-golunch-serverless` para gerar as URLs reais!
+
+```bash
+# 1. Deploy serverless (OBRIGATÓRIO primeiro)
+cd ../tc-golunch-serverless
+terraform init
+terraform apply
+# Isso cria funções Lambda e gera URLs reais do API Gateway
+
+# 2. Obter URLs reais geradas
+terraform output
+# Output: api_gateway_url = "https://abc123def.execute-api.us-east-1.amazonaws.com"
+
+# 3. ENTÃO configurar variáveis locais com URLs reais:
+export LAMBDA_AUTH_URL="https://abc123def.execute-api.us-east-1.amazonaws.com/auth"
+export SERVICE_AUTH_LAMBDA_URL="https://abc123def.execute-api.us-east-1.amazonaws.com/service-auth"
+
+# Variáveis existentes (mantidas)
+export MONGODB_URI="mongodb://localhost:27017"
+export MONGODB_DATABASE="golunch_payments"
+export PAYMENT_SERVICE_PORT="8082"
+export ORDER_SERVICE_URL="http://localhost:8081"
+export OPERATION_SERVICE_URL="http://localhost:8083"
+
+# Mercado Pago (necessárias)
+export MP_ACCESS_TOKEN="seu-mercado-pago-token"
+export MP_USER_ID="seu-user-id"
+export MP_POS_ID="seu-pos-id"
+```
+
+### **📦 Deploy Kubernetes**
+
+⚠️ **PREREQUISITO**: Deploy do `tc-golunch-serverless` ANTES de fazer deploy Kubernetes!
+
+**Passo-a-passo completo:**
+
+```bash
+# PASSO 1: Deploy Serverless (OBRIGATÓRIO primeiro)
+cd ../tc-golunch-serverless
+terraform init
+terraform apply
+
+# PASSO 2: Obter URLs reais do API Gateway
+terraform output
+# Exemplo output: api_gateway_url = "https://abc123def.execute-api.us-east-1.amazonaws.com"
+
+# PASSO 3: Atualizar ConfigMap com URLs REAIS
+cd ../tc-golunch-payment-service
+vim k8s/payment-service-configmap.yaml
+
+# SUBSTITUIR estas linhas (são templates):
+# LAMBDA_AUTH_URL: "https://your-api-gateway-id.execute-api.region.amazonaws.com/auth"
+# SERVICE_AUTH_LAMBDA_URL: "https://your-api-gateway-id.execute-api.region.amazonaws.com/service-auth"
+
+# POR URLs reais obtidas no terraform output:
+# LAMBDA_AUTH_URL: "https://abc123def.execute-api.us-east-1.amazonaws.com/auth"
+# SERVICE_AUTH_LAMBDA_URL: "https://abc123def.execute-api.us-east-1.amazonaws.com/service-auth"
+
+# PASSO 4: Deploy Kubernetes
+kubectl apply -f k8s/
+```
+
+**Estrutura já configurada:**
+```yaml
+# k8s/payment-service-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-service-config
+data:
+  LAMBDA_AUTH_URL: "https://your-api-gateway-id.execute-api.region.amazonaws.com/auth"
+  SERVICE_AUTH_LAMBDA_URL: "https://your-api-gateway-id.execute-api.region.amazonaws.com/service-auth"
+  # ... outras variáveis
+```
+
+### **✅ Verificação da Configuração**
+
+Após configurar as variáveis, teste a integração:
+
+```bash
+# 1. Inicie o serviço
+go run cmd/api/main.go
+
+# 2. Teste health check
+curl -X GET http://localhost:8082/ping
+
+# 3. Teste endpoint protegido (requer autenticação via Lambda)
+curl -X POST http://localhost:8082/payment \
+  -H "Authorization: Bearer <token-do-lambda>" \
+  -H "Content-Type: application/json" \
+  -d '{"order_id": "123", "amount": 50.00}'
+```
+
+### **🔄 Migração Gradual**
+
+A implementação mantém **compatibilidade total** com o código existente:
+- ✅ Mesmas interfaces de autenticação
+- ✅ Mesmos endpoints e responses  
+- ✅ Zero breaking changes para clientes
+- ✅ Fallback automático se Lambda não disponível
+
