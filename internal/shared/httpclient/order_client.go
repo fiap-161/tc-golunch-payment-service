@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 )
 
 type OrderClient struct {
@@ -25,6 +26,15 @@ func NewOrderClient(baseURL string) *OrderClient {
 	}
 }
 
+// addServiceAuth adds service authentication headers to HTTP requests
+func (c *OrderClient) addServiceAuth(req *http.Request) {
+	// Add service-to-service authentication headers
+	req.Header.Set("X-Service-Name", "payment-service")
+	if apiKey := os.Getenv("PAYMENT_SERVICE_API_KEY"); apiKey != "" {
+		req.Header.Set("X-Service-Key", apiKey)
+	}
+}
+
 func (c *OrderClient) FindByID(ctx context.Context, orderID string) (Order, error) {
 	url := fmt.Sprintf("%s/admin/orders/%s", c.baseURL, orderID)
 
@@ -34,6 +44,9 @@ func (c *OrderClient) FindByID(ctx context.Context, orderID string) (Order, erro
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add service authentication
+	c.addServiceAuth(req)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -71,6 +84,9 @@ func (c *OrderClient) Update(ctx context.Context, order Order) (Order, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add service authentication
+	c.addServiceAuth(req)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
