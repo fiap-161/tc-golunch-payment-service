@@ -289,7 +289,7 @@ jobs:
           --from-literal=MONGODB_URI="$MONGODB_URI" \
           --from-literal=MONGODB_DATABASE="$MONGODB_DATABASE" \
           --from-literal=ORDER_SERVICE_URL="http://golunch-core-service:8081" \
-          --from-literal=PRODUCTION_SERVICE_URL="http://golunch-production-service:8083" \
+          --from-literal=OPERATION_SERVICE_URL="http://golunch-operation-service:8083" \
           --from-literal=MERCADO_PAGO_ACCESS_TOKEN="$MP_ACCESS_TOKEN" \
           --from-literal=MERCADO_PAGO_SELLER_APP_USER_ID="$MP_SELLER_APP_USER_ID" \
           --from-literal=MERCADO_PAGO_EXTERNAL_POS_ID="$MP_EXTERNAL_POS_ID" \

@@ -51,7 +51,7 @@ func validateServiceAPIKey(serviceName, apiKey string) bool {
 		expectedKey = os.Getenv("CORE_SERVICE_API_KEY")
 	case "payment-service":
 		expectedKey = os.Getenv("PAYMENT_SERVICE_API_KEY")
-	case "production-service":
+	case "operation-service":
 		expectedKey = os.Getenv("PRODUCTION_SERVICE_API_KEY")
 	default:
 		return false

@@ -16,7 +16,7 @@ data:
   
   # Service URLs
   ORDER_SERVICE_URL: "http://core-service:8081"
-  PRODUCTION_SERVICE_URL: "http://production-service:8083"
+  OPERATION_SERVICE_URL: "http://operation-service:8083"
   
   # Logging
   LOG_LEVEL: "info"
