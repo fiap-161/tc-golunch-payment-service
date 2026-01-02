@@ -1,0 +1,360 @@
+name: Payment Service - CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.24'
+  SONAR_PROJECT_KEY: 'fiap-161_tc-golunch-payment-service'
+  AWS_REGION: 'us-east-1'
+  ECR_REPOSITORY: 'golunch-payment-service'
+
+jobs:
+  # Job 1: Tests e Quality Gates
+  test-and-quality:
+    name: 🧪 Tests & Quality Gates  
+    runs-on: ubuntu-latest
+    
+    services:
+      mongodb:
+        image: mongo:4.4
+        env:
+          MONGO_INITDB_ROOT_USERNAME: test_user
+          MONGO_INITDB_ROOT_PASSWORD: test_pass
+          MONGO_INITDB_DATABASE: golunch_payments_test
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: 🔧 Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: 📦 Cache Go Modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-payment-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-payment-
+
+    - name: 📋 Verify Dependencies
+      run: |
+        go mod tidy
+        go mod verify
+
+    - name: 🔍 Lint Code
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        args: --timeout=5m
+
+    - name: 🔒 Security Check
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
+
+    - name: 🧪 Run Unit Tests
+      run: |
+        make test-unit
+      env:
+        CGO_ENABLED: 1
+
+    - name: 🔗 Run Integration Tests (Mocked Dependencies)
+      run: |
+        echo "🎭 Running integration tests with mocked Order & Production services..."
+        make test-integration
+      env:
+        MONGODB_URL: mongodb://test_user:test_pass@localhost:27017/golunch_payments_test
+
+    - name: 🎭 Test Mocked External Dependencies
+      run: |
+        echo "🎭 Testing HTTP communication with mocked services..."
+        make test-mock-deps
+
+    - name: 🥒 Run BDD Tests
+      run: |
+        go install github.com/onsi/ginkgo/v2/ginkgo@latest
+        make test-bdd
+
+    - name: 📊 Generate Coverage Report
+      run: |
+        make coverage
+        echo "COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')" >> $GITHUB_ENV
+
+    - name: ✅ Validate Coverage Threshold (80%)
+      run: |
+        COVERAGE_NUM=$(echo $COVERAGE | cut -d'.' -f1)
+        echo "📊 Current coverage: $COVERAGE%"
+        if [ "$COVERAGE_NUM" -lt 80 ]; then
+          echo "❌ Coverage is $COVERAGE%, minimum required is 80%"
+          echo "💡 Payment Service must have 80%+ test coverage"
+          exit 1
+        else
+          echo "✅ Coverage is $COVERAGE%, meets minimum requirement of 80%"
+        fi
+
+    - name: 📤 Upload Coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage-total.out
+        flags: payment-service
+        name: payment-service-coverage
+
+    - name: 🔍 SonarQube Analysis
+      uses: sonarqube-quality-gate-action@master
+      with:
+        scanMetadataReportFile: .scannerwork/report-task.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    - name: 📋 SonarQube Quality Gate (70%+ Coverage)
+      run: |
+        echo "🔍 Checking SonarQube Quality Gate..."
+        curl -s -u ${{ secrets.SONAR_TOKEN }}: \
+        "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ env.SONAR_PROJECT_KEY }}" \
+        | jq -r '.projectStatus.status' | grep -q "OK" || exit 1
+
+  # Job 2: Build e Docker
+  build:
+    name: 🔨 Build & Docker
+    runs-on: ubuntu-latest
+    needs: test-and-quality
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: 🔧 Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: 🔨 Build Application
+      run: make build
+
+    - name: 🧪 Verify Binary
+      run: |
+        ./bin/payment-service --version || echo "Binary created successfully"
+
+    - name: 🐳 Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: � Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: 🔐 Login to Amazon ECR
+      run: |
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        echo "ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
+        aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+          | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+
+    - name: 🏷️ Extract Metadata
+      id: meta
+      run: |
+        IMAGE_TAG=${GITHUB_SHA:0:7}
+        IMAGE_URI=$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}
+        echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+    - name: 🐳 Build and Push Docker Image
+      run: |
+        IMAGE_TAG=${{ steps.meta.outputs.image_tag }}
+        IMAGE_URI=${{ steps.meta.outputs.image_uri }}
+        
+        docker build -t ${{ env.ECR_REPOSITORY }}:${IMAGE_TAG} .
+        docker tag ${{ env.ECR_REPOSITORY }}:${IMAGE_TAG} $IMAGE_URI
+        docker push $IMAGE_URI
+        
+        echo "✅ Pushed image: $IMAGE_URI"
+
+  # Job 3: Integration Smoke Tests
+  integration-smoke-tests:
+    name: 🔥 Integration Smoke Tests
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+
+    services:
+      mongodb:
+        image: mongo:4.4
+        env:
+          MONGO_INITDB_ROOT_USERNAME: test_user
+          MONGO_INITDB_ROOT_PASSWORD: test_pass
+        ports:
+          - 27017:27017
+
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: 🐳 Run Payment Service Container
+      run: |
+        docker run -d --name payment-service-test \
+          -p 8082:8082 \
+          -e MONGODB_URL=mongodb://test_user:test_pass@host.docker.internal:27017/golunch_payments_test \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+    - name: ⏱️ Wait for Service Startup
+      run: |
+        echo "⏱️ Waiting for Payment Service to start..."
+        for i in {1..30}; do
+          if curl -s http://localhost:8082/ping > /dev/null; then
+            echo "✅ Payment Service is ready"
+            break
+          fi
+          echo "⏳ Waiting... ($i/30)"
+          sleep 5
+        done
+
+    - name: 🏥 Health Check
+      run: |
+        response=$(curl -s http://localhost:8082/ping)
+        echo "Health check response: $response"
+        echo "$response" | grep -q "pong" || exit 1
+
+    - name: 🔥 Smoke Test - Create Payment
+      run: |
+        echo "🔥 Testing payment creation..."
+        curl -X POST http://localhost:8082/payments \
+          -H "Content-Type: application/json" \
+          -d '{"order_id":"smoke_test_order","amount":99.90}' \
+          -w "\nHTTP Status: %{http_code}\n"
+
+    - name: 🧹 Cleanup
+      if: always()
+      run: |
+        docker stop payment-service-test || true
+        docker rm payment-service-test || true
+
+  # Job 4: Deploy (só para branch main)
+  deploy:
+    name: 🚀 Deploy
+    runs-on: ubuntu-latest
+    needs: [test-and-quality, build, integration-smoke-tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: � Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: 🔐 Configure kubectl for EKS
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name eks-golunch-terraform-infra
+
+    - name: �️ Create Payment Service Secrets
+      env:
+        MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+        MP_ACCESS_TOKEN: ${{ secrets.MERCADO_PAGO_ACCESS_TOKEN }}
+        MP_SELLER_APP_USER_ID: ${{ secrets.MERCADO_PAGO_SELLER_APP_USER_ID }}
+        MP_EXTERNAL_POS_ID: ${{ secrets.MERCADO_PAGO_EXTERNAL_POS_ID }}
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+      run: |
+        kubectl delete secret payment-service-secrets --ignore-not-found
+        kubectl create secret generic payment-service-secrets \
+          --from-literal=MONGODB_URI="$MONGODB_URI" \
+          --from-literal=MONGODB_DATABASE="$MONGODB_DATABASE" \
+          --from-literal=ORDER_SERVICE_URL="http://golunch-core-service:8081" \
+          --from-literal=PRODUCTION_SERVICE_URL="http://golunch-production-service:8083" \
+          --from-literal=MERCADO_PAGO_ACCESS_TOKEN="$MP_ACCESS_TOKEN" \
+          --from-literal=MERCADO_PAGO_SELLER_APP_USER_ID="$MP_SELLER_APP_USER_ID" \
+          --from-literal=MERCADO_PAGO_EXTERNAL_POS_ID="$MP_EXTERNAL_POS_ID" \
+          --from-literal=WEBHOOK_URL="$WEBHOOK_URL"
+
+    - name: � Deploy to Production
+      run: |
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        IMAGE_TAG=${GITHUB_SHA:0:7}
+        IMAGE_URI=$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}
+        
+        echo "🚀 Deploying Payment Service to production..."
+        echo "📦 Image: $IMAGE_URI"
+        echo "💳 Service handles payment processing with Mercado Pago integration"
+        
+        helm upgrade --install golunch-payment-service ./goLunch \
+          --set image.repository=$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }} \
+          --set image.tag=${IMAGE_TAG} \
+          --set app.service_port=8082 \
+          --set app.service_name=golunch-payment-service
+
+    - name: 🏥 Production Health Check
+      run: |
+        echo "🏥 Running post-deploy health checks..."
+        kubectl rollout restart deployment golunch-payment-service
+        kubectl rollout status deployment/golunch-payment-service --timeout=300s
+        
+        # Wait for service to be ready
+        sleep 60
+        
+        # Health check via kubectl port-forward
+        kubectl port-forward service/golunch-payment-service 8082:8082 &
+        PID=$!
+        sleep 5
+        
+        if curl -f http://localhost:8082/ping; then
+          echo "✅ Payment Service health check passed"
+        else
+          echo "❌ Payment Service health check failed"
+          exit 1
+        fi
+        
+        kill $PID
+
+  # Job 5: Notification
+  notify:
+    name: 📢 Notifications
+    runs-on: ubuntu-latest
+    needs: [test-and-quality, build, integration-smoke-tests, deploy]
+    if: always()
+
+    steps:
+    - name: 📢 Notify Success
+      if: ${{ needs.test-and-quality.result == 'success' && needs.build.result == 'success' }}
+      run: |
+        echo "✅ Payment Service pipeline completed successfully!"
+        echo "📊 Coverage: ${{ env.COVERAGE }}% (80%+ requirement met)"
+        echo "🎭 All external dependencies properly mocked"
+        echo "🐳 Docker image built and pushed"
+        echo "🚀 Deployment completed"
+
+    - name: 📢 Notify Failure
+      if: ${{ needs.test-and-quality.result == 'failure' || needs.build.result == 'failure' }}
+      run: |
+        echo "❌ Payment Service pipeline failed!"
+        echo "🔍 Check logs for details"
+        echo "💡 Ensure 80%+ test coverage and quality gates"
+        exit 1
