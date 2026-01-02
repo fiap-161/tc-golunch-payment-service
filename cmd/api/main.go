@@ -70,3 +70,4 @@ func checkPayment(c *gin.Context) {
 		"message": "Payment verified successfully",
 	})
 }
+

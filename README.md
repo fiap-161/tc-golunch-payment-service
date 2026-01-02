@@ -131,7 +131,7 @@ A documentação completa da API está disponível via Swagger UI em:
 
 ## 🔗 Integração com Outros Serviços
 
-- **Order Service**: Recebe notificações de criação de pedidos
+- **Core Service**: Recebe notificações de criação de pedidos
 - **Production Service**: Notifica mudanças de status de pagamento
 - **Mercado Pago**: Processamento de pagamentos via QR Code
 
