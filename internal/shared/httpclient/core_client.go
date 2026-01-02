@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-type OrderClient struct {
+type CoreClient struct {
 	baseURL string
 	client  *http.Client
 }
@@ -19,15 +19,15 @@ type Order struct {
 	Status string `json:"status"`
 }
 
-func NewOrderClient(baseURL string) *OrderClient {
-	return &OrderClient{
+func NewCoreClient(baseURL string) *CoreClient {
+	return &CoreClient{
 		baseURL: baseURL,
 		client:  &http.Client{},
 	}
 }
 
 // addServiceAuth adds service authentication headers to HTTP requests
-func (c *OrderClient) addServiceAuth(req *http.Request) {
+func (c *CoreClient) addServiceAuth(req *http.Request) {
 	// Add service-to-service authentication headers
 	req.Header.Set("X-Service-Name", "payment-service")
 	if apiKey := os.Getenv("PAYMENT_SERVICE_API_KEY"); apiKey != "" {
@@ -35,7 +35,7 @@ func (c *OrderClient) addServiceAuth(req *http.Request) {
 	}
 }
 
-func (c *OrderClient) FindByID(ctx context.Context, orderID string) (Order, error) {
+func (c *CoreClient) FindByID(ctx context.Context, orderID string) (Order, error) {
 	url := fmt.Sprintf("%s/admin/orders/%s", c.baseURL, orderID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -66,7 +66,7 @@ func (c *OrderClient) FindByID(ctx context.Context, orderID string) (Order, erro
 	return order, nil
 }
 
-func (c *OrderClient) Update(ctx context.Context, order Order) (Order, error) {
+func (c *CoreClient) Update(ctx context.Context, order Order) (Order, error) {
 	url := fmt.Sprintf("%s/admin/orders/%s", c.baseURL, order.ID)
 
 	payload := map[string]string{

@@ -112,8 +112,8 @@ db-stop:
 # Test com dependências mockadas
 test-mock-deps:
 	@echo "🎭 Running tests with mocked external dependencies..."
-	@echo "   - Order Service: Mocked"
-	@echo "   - Production Service: Mocked"  
+	@echo "   - Core Service: Mocked"
+	@echo "   - Operation Service: Mocked"  
 	@echo "   - MercadoPago API: Mocked"
 	go test -v ./tests/... -tags=mock
 
@@ -160,7 +160,7 @@ help:
 	@echo "  health-check       - Check service health"
 	@echo "  help               - Show this help"
 	@echo ""
-	@echo "📋 Note: This service communicates with Order and Production services via HTTP"
+	@echo "📋 Note: This service communicates with Core and Operation services via HTTP"
 
 # Default target
 .DEFAULT_GOAL := help

@@ -13,27 +13,27 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// MockOrderClient simula o Order Service para testes isolados
-type MockOrderClient struct {
+// MockCoreClient simula o Core Service para testes isolados
+type MockCoreClient struct {
 	mock.Mock
 }
 
-func (m *MockOrderClient) GetOrder(orderID string) (*OrderResponse, error) {
+func (m *MockCoreClient) GetOrder(orderID string) (*CoreResponse, error) {
 	args := m.Called(orderID)
-	return args.Get(0).(*OrderResponse), args.Error(1)
+	return args.Get(0).(*CoreResponse), args.Error(1)
 }
 
-func (m *MockOrderClient) UpdateOrderPaymentStatus(orderID, status string) error {
+func (m *MockCoreClient) UpdateOrderPaymentStatus(orderID, status string) error {
 	args := m.Called(orderID, status)
 	return args.Error(0)
 }
 
-// MockProductionClient simula o Production Service para testes isolados
-type MockProductionClient struct {
+// MockOperationClient simula o Operation Service para testes isolados
+type MockOperationClient struct {
 	mock.Mock
 }
 
-func (m *MockProductionClient) NotifyPaymentCompleted(orderID string, paymentData PaymentCompletedData) error {
+func (m *MockOperationClient) NotifyPaymentCompleted(orderID string, paymentData PaymentCompletedData) error {
 	args := m.Called(orderID, paymentData)
 	return args.Error(0)
 }
@@ -53,8 +53,8 @@ func (m *MockMercadoPagoClient) GetPayment(paymentID string) (*MercadoPagoRespon
 	return args.Get(0).(*MercadoPagoResponse), args.Error(1)
 }
 
-// OrderResponse representa resposta do Order Service
-type OrderResponse struct {
+// CoreResponse representa resposta do Core Service
+type CoreResponse struct {
 	ID          string      `json:"id"`
 	CustomerID  string      `json:"customer_id"`
 	TotalAmount float64     `json:"total_amount"`
@@ -98,11 +98,11 @@ func TestPaymentCreationWithOrderValidation(t *testing.T) {
 	router := gin.New()
 
 	// Mocks
-	mockOrderClient := new(MockOrderClient)
+	mockCoreClient := new(MockCoreClient)
 	mockMercadoPagoClient := new(MockMercadoPagoClient)
 
 	// Mock responses
-	expectedOrder := &OrderResponse{
+	expectedOrder := &CoreResponse{
 		ID:          "order_123",
 		CustomerID:  "customer_123",
 		TotalAmount: 99.90,
@@ -126,7 +126,7 @@ func TestPaymentCreationWithOrderValidation(t *testing.T) {
 	}
 
 	// Configurar expectativas dos mocks
-	mockOrderClient.On("GetOrder", "order_123").Return(expectedOrder, nil)
+	mockCoreClient.On("GetOrder", "order_123").Return(expectedOrder, nil)
 	mockMercadoPagoClient.On("CreatePayment", "order_123", 99.90).Return(expectedMPResponse, nil)
 
 	// Rota de criação de pagamento
@@ -141,8 +141,8 @@ func TestPaymentCreationWithOrderValidation(t *testing.T) {
 			return
 		}
 
-		// Validar pedido com Order Service (mockado)
-		orderResponse, err := mockOrderClient.GetOrder(paymentRequest.OrderID)
+		// Validar pedido com Core Service (mockado)
+		orderResponse, err := mockCoreClient.GetOrder(paymentRequest.OrderID)
 		if err != nil {
 			c.JSON(404, gin.H{"error": "Order not found"})
 			return
@@ -207,7 +207,7 @@ func TestPaymentCreationWithOrderValidation(t *testing.T) {
 	assert.NotEmpty(t, response["qr_code_base64"])
 
 	// Verificar mocks
-	mockOrderClient.AssertExpectations(t)
+	mockCoreClient.AssertExpectations(t)
 	mockMercadoPagoClient.AssertExpectations(t)
 }
 
@@ -217,8 +217,8 @@ func TestPaymentWebhookProcessing(t *testing.T) {
 	router := gin.New()
 
 	// Mocks
-	mockOrderClient := new(MockOrderClient)
-	mockProductionClient := new(MockProductionClient)
+	mockCoreClient := new(MockCoreClient)
+	mockOperationClient := new(MockOperationClient)
 	mockMercadoPagoClient := new(MockMercadoPagoClient)
 
 	// Mock responses
@@ -232,8 +232,8 @@ func TestPaymentWebhookProcessing(t *testing.T) {
 
 	// Configurar expectativas - usar MatchedBy para timestamps flexíveis
 	mockMercadoPagoClient.On("GetPayment", "mp_payment_123").Return(expectedMPResponse, nil)
-	mockOrderClient.On("UpdateOrderPaymentStatus", "order_123", "paid").Return(nil)
-	mockProductionClient.On("NotifyPaymentCompleted", "order_123", mock.MatchedBy(func(data PaymentCompletedData) bool {
+	mockCoreClient.On("UpdateOrderPaymentStatus", "order_123", "paid").Return(nil)
+	mockOperationClient.On("NotifyPaymentCompleted", "order_123", mock.MatchedBy(func(data PaymentCompletedData) bool {
 		// Verificar se os dados estão corretos, ignorando diferenças mínimas de timestamp
 		return data.PaymentID == "payment_123" &&
 			data.Amount == 99.9 &&
@@ -266,23 +266,23 @@ func TestPaymentWebhookProcessing(t *testing.T) {
 		if mpResponse.Status == "approved" {
 			orderID := mpResponse.ExternalReference
 
-			// Atualizar Order Service (mockado)
-			err = mockOrderClient.UpdateOrderPaymentStatus(orderID, "paid")
+			// Atualizar Core Service (mockado)
+			err = mockCoreClient.UpdateOrderPaymentStatus(orderID, "paid")
 			if err != nil {
 				c.JSON(500, gin.H{"error": "Failed to update order"})
 				return
 			}
 
-			// Notificar Production Service (mockado)
+			// Notificar Operation Service (mockado)
 			paymentData := PaymentCompletedData{
 				PaymentID: "payment_123", // Simulado
 				Amount:    mpResponse.TransactionAmount,
 				PaidAt:    time.Now(),
 			}
 
-			err = mockProductionClient.NotifyPaymentCompleted(orderID, paymentData)
+			err = mockOperationClient.NotifyPaymentCompleted(orderID, paymentData)
 			if err != nil {
-				c.JSON(500, gin.H{"error": "Failed to notify production"})
+				c.JSON(500, gin.H{"error": "Failed to notify operation"})
 				return
 			}
 
@@ -326,8 +326,8 @@ func TestPaymentWebhookProcessing(t *testing.T) {
 
 	// Verificar mocks
 	mockMercadoPagoClient.AssertExpectations(t)
-	mockOrderClient.AssertExpectations(t)
-	mockProductionClient.AssertExpectations(t)
+	mockCoreClient.AssertExpectations(t)
+	mockOperationClient.AssertExpectations(t)
 }
 
 // TestPaymentStatusCheck testa consulta de status sem dependências externas

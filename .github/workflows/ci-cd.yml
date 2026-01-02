@@ -78,7 +78,7 @@ jobs:
 
     - name: 🔗 Run Integration Tests (Mocked Dependencies)
       run: |
-        echo "🎭 Running integration tests with mocked Order & Production services..."
+        echo "🎭 Running integration tests with mocked Core & Operation services..."
         make test-integration
       env:
         MONGODB_URL: mongodb://test_user:test_pass@localhost:27017/golunch_payments_test
@@ -288,7 +288,7 @@ jobs:
         kubectl create secret generic payment-service-secrets \
           --from-literal=MONGODB_URI="$MONGODB_URI" \
           --from-literal=MONGODB_DATABASE="$MONGODB_DATABASE" \
-          --from-literal=ORDER_SERVICE_URL="http://golunch-core-service:8081" \
+          --from-literal=CORE_SERVICE_URL="http://golunch-core-service:8081" \
           --from-literal=OPERATION_SERVICE_URL="http://golunch-operation-service:8083" \
           --from-literal=MERCADO_PAGO_ACCESS_TOKEN="$MP_ACCESS_TOKEN" \
           --from-literal=MERCADO_PAGO_SELLER_APP_USER_ID="$MP_SELLER_APP_USER_ID" \

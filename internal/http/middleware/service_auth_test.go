@@ -15,7 +15,7 @@ func TestServiceAuthMiddleware(t *testing.T) {
 	// Set test environment variables
 	os.Setenv("CORE_SERVICE_API_KEY", "test-core-api-key")
 	os.Setenv("PAYMENT_SERVICE_API_KEY", "test-payment-api-key")
-	os.Setenv("PRODUCTION_SERVICE_API_KEY", "test-production-api-key")
+	os.Setenv("OPERATION_SERVICE_API_KEY", "test-production-api-key")
 
 	gin.SetMode(gin.TestMode)
 
@@ -146,7 +146,7 @@ func TestServiceAuthMiddleware(t *testing.T) {
 	// Cleanup
 	os.Unsetenv("CORE_SERVICE_API_KEY")
 	os.Unsetenv("PAYMENT_SERVICE_API_KEY") 
-	os.Unsetenv("PRODUCTION_SERVICE_API_KEY")
+	os.Unsetenv("OPERATION_SERVICE_API_KEY")
 }
 
 func TestValidateServiceAPIKey(t *testing.T) {
