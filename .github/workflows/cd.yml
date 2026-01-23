@@ -99,7 +99,7 @@ jobs:
       - name: Deploy com Helm (configmap atualizado)
         run: |
           IMAGE_TAG=${GITHUB_SHA}
-          helm upgrade --install payment-service-0.0.1 ./goLunch_op \
+          helm upgrade --install payment-service-0.0.1 ./goLunch_pay \
             --namespace golunch \
             --set image.repository=$ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/golunch-payment-service \
             --set image.tag=${IMAGE_TAG} \
