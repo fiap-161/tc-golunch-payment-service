@@ -1,5 +1,4 @@
 package middleware
-package middleware
 
 import (
 	"net/http"
@@ -21,7 +20,7 @@ func ServiceAuthMiddleware() gin.HandlerFunc {
 		// Method 1: API Key Authentication (preferred for service-to-service)
 		serviceName := c.GetHeader("X-Service-Name")
 		serviceKey := c.GetHeader("X-Service-Key")
-		
+
 		if serviceName != "" && serviceKey != "" {
 			if validateServiceAPIKey(serviceName, serviceKey) {
 				c.Set("authenticated_service", serviceName)
@@ -45,7 +44,7 @@ func ServiceAuthMiddleware() gin.HandlerFunc {
 // validateServiceAPIKey validates API key for service authentication
 func validateServiceAPIKey(serviceName, apiKey string) bool {
 	var expectedKey string
-	
+
 	switch serviceName {
 	case "core-service":
 		expectedKey = os.Getenv("CORE_SERVICE_API_KEY")
@@ -56,11 +55,11 @@ func validateServiceAPIKey(serviceName, apiKey string) bool {
 	default:
 		return false
 	}
-	
+
 	if expectedKey == "" {
 		return false
 	}
-	
+
 	// Use constant-time comparison to prevent timing attacks
 	return constantTimeEquals(apiKey, expectedKey)
 }
@@ -70,11 +69,11 @@ func constantTimeEquals(a, b string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	
+
 	result := 0
 	for i := 0; i < len(a); i++ {
 		result |= int(a[i]) ^ int(b[i])
 	}
-	
+
 	return result == 0
 }

@@ -1,8 +1,6 @@
 package middleware
-package middleware
 
 import (
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -40,7 +38,7 @@ func TestServiceAuthMiddleware(t *testing.T) {
 		{
 			name:           "Valid service credentials",
 			path:           "/api/test",
-			method:         "GET", 
+			method:         "GET",
 			serviceName:    "core-service",
 			serviceKey:     "test-core-api-key",
 			expectedStatus: 200,
@@ -49,7 +47,7 @@ func TestServiceAuthMiddleware(t *testing.T) {
 			name:           "Valid payment service credentials",
 			path:           "/api/orders",
 			method:         "POST",
-			serviceName:    "payment-service", 
+			serviceName:    "payment-service",
 			serviceKey:     "test-payment-api-key",
 			expectedStatus: 200,
 		},
@@ -67,7 +65,7 @@ func TestServiceAuthMiddleware(t *testing.T) {
 			path:           "/api/test",
 			method:         "GET",
 			serviceName:    "core-service",
-			serviceKey:     "wrong-api-key", 
+			serviceKey:     "wrong-api-key",
 			expectedStatus: 401,
 			expectedBody:   "Unauthorized: Invalid service credentials",
 		},
@@ -103,7 +101,7 @@ func TestServiceAuthMiddleware(t *testing.T) {
 			// Setup router with middleware
 			router := gin.New()
 			router.Use(ServiceAuthMiddleware())
-			
+
 			// Add test route
 			router.Any("/*path", func(c *gin.Context) {
 				c.JSON(200, gin.H{"message": "success"})
@@ -111,7 +109,7 @@ func TestServiceAuthMiddleware(t *testing.T) {
 
 			// Create request
 			req := httptest.NewRequest(tt.method, tt.path, nil)
-			
+
 			// Add headers
 			if tt.serviceName != "" {
 				req.Header.Set("X-Service-Name", tt.serviceName)
@@ -145,7 +143,7 @@ func TestServiceAuthMiddleware(t *testing.T) {
 
 	// Cleanup
 	os.Unsetenv("CORE_SERVICE_API_KEY")
-	os.Unsetenv("PAYMENT_SERVICE_API_KEY") 
+	os.Unsetenv("PAYMENT_SERVICE_API_KEY")
 	os.Unsetenv("OPERATION_SERVICE_API_KEY")
 }
 
@@ -168,7 +166,7 @@ func TestValidateServiceAPIKey(t *testing.T) {
 		},
 		{
 			name:        "Valid payment service key",
-			serviceName: "payment-service", 
+			serviceName: "payment-service",
 			apiKey:      "test-payment-key",
 			expected:    true,
 		},
