@@ -1,0 +1,111 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::032811251961:role/git-terraform-role
+          aws-region: us-east-1
+
+      - name: Configure kubeconfig (EKS)
+        run: aws eks update-kubeconfig --region us-east-1 --name eks-golunch-terraform-infra
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Obter AWS Account ID
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
+
+      - name: Login no ECR
+        run: |
+          aws ecr get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+
+      - name: Buscar URL do banco de dados
+        id: db_secret
+        run: |
+          DB_URL=$(aws secretsmanager get-secret-value \
+            --secret-id golunch/db-url \
+            --query SecretString \
+            --output text)
+          echo "db_url=$DB_URL" >> $GITHUB_OUTPUT
+
+      - name: Debug valor DB_URL
+        run: echo "DB_URL capturado ${{ steps.db_secret.outputs.db_url }}"
+
+      - name: Build da imagem
+        run: |
+          IMAGE_TAG=${GITHUB_SHA}
+          docker build -t golunch-payment-service:${IMAGE_TAG} .
+          docker tag golunch-payment-service:${IMAGE_TAG} $ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/golunch-payment-service:${IMAGE_TAG}
+          docker push $ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/golunch-payment-service:${IMAGE_TAG}
+
+      - name: Configurar kubectl para o EKS
+        run: |
+          aws eks update-kubeconfig --region us-east-1 --name eks-golunch-terraform-infra
+
+      - name: Criar namespace se não existir
+        run: |
+          kubectl create namespace golunch --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Instalar ou atualizar release com Helm
+        run: |
+          IMAGE_TAG=${GITHUB_SHA}
+          helm upgrade --install payment-service-0.0.1 ./goLunch_op \
+            --namespace golunch \
+            --create-namespace \
+            --set image.repository=$ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/golunch-payment-service \
+            --set image.tag=${IMAGE_TAG} \
+            --set app.db_url="${{ steps.db_secret.outputs.db_url }}" \
+            --set app.db_user="${{ secrets.DATABASE_USER }}" \
+            --set app.db_password="${{ secrets.DATABASE_PASSWORD }}" \
+            --set app.mp_access_token="${{ secrets.MERCADO_PAGO_ACCESS_TOKEN }}" \
+            --set app.mp_seller_app_user_id="${{ secrets.MERCADO_PAGO_SELLER_APP_USER_ID }}" \
+            --set app.secret_key="${{ secrets.SECRET_KEY }}"
+
+      - name: Obter URL do serviço (LoadBalancer)
+        run: |
+          echo "⏳ Aguardando LoadBalancer atribuir EXTERNAL-IP..."
+          for i in {1..30}; do
+            SERVICE_URL=$(kubectl get svc payment-service -n golunch -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+            if [ -n "$SERVICE_URL" ]; then
+              echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+              echo "✅ Encontrado: $SERVICE_URL"
+              exit 0
+            fi
+            echo "Ainda aguardando... ($i/30)"
+            sleep 10
+          done
+          echo "❌ Não foi possível obter EXTERNAL-IP"
+          exit 1
+
+      - name: Deploy com Helm (configmap atualizado)
+        run: |
+          IMAGE_TAG=${GITHUB_SHA}
+          helm upgrade --install payment-service-0.0.1 ./goLunch_op \
+            --namespace golunch \
+            --set image.repository=$ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/golunch-payment-service \
+            --set image.tag=${IMAGE_TAG} \
+            --set app.publicURL="http://${SERVICE_URL}" \
+            --set app.webhookURL="http://${SERVICE_URL}/webhook/payment/check"
+
+      - name: Atualizando pods
+        run: |
+          kubectl rollout restart deployment payment-service -n golunch

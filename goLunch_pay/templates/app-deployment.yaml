@@ -1,0 +1,53 @@
+apiVersion: apps/v1 
+kind: Deployment
+metadata:
+  name: {{ include "goLunch.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "goLunch.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "goLunch.fullname" . }}
+    spec:
+      containers:
+        - name: {{ include "goLunch.fullname" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8083
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          volumeMounts: 
+            - name: uploads
+              mountPath: /app/uploads
+          startupProbe:
+            httpGet:
+              path: /ping
+              port: 8083
+            periodSeconds: 3
+            failureThreshold: 3
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8083
+            periodSeconds: 3
+            failureThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8083
+            periodSeconds: 5
+            failureThreshold: 1
+      volumes:
+        - name: uploads
+          emptyDir: {}
